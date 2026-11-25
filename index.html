@@ -39,7 +39,12 @@
   .btn { display:inline-block; padding:10px 16px; border-radius:8px; border:0;
          background:var(--accent); color:#fff; font-size:1rem; cursor:pointer; margin:6px 6px 0 0; }
   .btn.secondary { background:#e5e7eb; color:var(--ink); }
+  .btn.small { padding:5px 10px; font-size:.85rem; margin:4px 0 0; }
   .btn:disabled { opacity:.5; cursor:default; }
+  .charge-row, .ev-row { display:flex; gap:8px; margin-top:8px; align-items:center; }
+  .charge-row input, .ev-row input, .ev-row select { margin:0; }
+  .charge-row .rm, .ev-row .rm { flex:0 0 auto; background:#e5e7eb; border:0;
+          border-radius:6px; padding:8px 10px; cursor:pointer; font-size:1rem; }
   #receiptCard { border:2px dashed var(--accent); border-radius:10px; padding:14px;
           background:var(--accent-soft); white-space:pre-wrap; word-break:break-word;
           font-size:.95rem; }
@@ -49,6 +54,7 @@
   .result { border-radius:8px; padding:10px 12px; margin:8px 0; font-size:.92rem; }
   .result.ok { background:var(--ok-bg); color:#14532d; }
   .result.bad { background:var(--bad-bg); color:#7f1d1d; }
+  .result.note { background:var(--accent-soft); color:#1e3a8a; }
   .hint { font-size:.85rem; color:var(--muted); }
   .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.85rem; word-break:break-all; }
   footer { text-align:center; color:var(--muted); font-size:.85rem; padding:8px 16px 28px; }
@@ -96,7 +102,7 @@
 
       <div class="row">
         <div>
-          <label for="fWhen">When did you cancel? (UTC) *</label>
+          <label for="fWhen">When did you cancel? (your local time — stored as UTC) *</label>
           <input id="fWhen" type="datetime-local">
         </div>
         <div>
@@ -113,13 +119,20 @@
         </div>
       </div>
 
+      <label for="fEffective">When does it take effect? (optional — only if different, e.g. end of the paid period)</label>
+      <input id="fEffective" type="datetime-local">
+
       <label for="fReference">Confirmation / reference number (from the seller)</label>
       <input id="fReference" placeholder="e.g. CNL-8841-2290" autocomplete="off">
-      <p class="hint">A receipt needs a reference number <em>or</em> a screenshot hash — at least one piece of evidence.</p>
+      <p class="hint">A receipt needs a reference number, <em>or</em> a screenshot hash, <em>or</em> an evidence item below — at least one piece of evidence.</p>
 
       <label for="fShot">Screenshot of the confirmation (stays on your device — only its hash goes in the receipt)</label>
       <input id="fShot" type="file" accept="image/*">
       <div id="shotHash" class="hint mono" style="margin-top:6px"></div>
+
+      <label>Additional evidence (optional — confirmation email, PDF, seller reply…)</label>
+      <div id="evRows"></div>
+      <button class="btn secondary small" onclick="addEvRow()">+ Add evidence</button>
 
       <label>Did anything try to stop you cancelling? (optional)</label>
       <div class="flags" id="fFlags">
@@ -132,11 +145,21 @@
         <label><input type="checkbox" value="roach_motel"> Easy in, hard out</label>
       </div>
 
-      <label>Charged after cancelling? (optional — one charge; add more in the JSON)</label>
+      <label>Charged after cancelling? (optional — add one row per charge)</label>
+      <div id="chargeRows"></div>
+      <button class="btn secondary small" onclick="addChargeRow()">+ Add charge</button>
+
       <div class="row">
-        <input id="fChargeDate" type="date" aria-label="Charge date">
-        <input id="fChargeAmount" type="number" min="0" step="0.01" placeholder="Amount" aria-label="Charge amount">
-        <input id="fChargeCurrency" placeholder="USD" maxlength="3" aria-label="Currency code">
+        <div>
+          <label for="fStatus">Outcome (optional)</label>
+          <select id="fStatus">
+            <option value="">— not recorded —</option>
+            <option value="no_charge">No charge after cancelling</option>
+            <option value="charged_refunded">Charged, then refunded</option>
+            <option value="charged_disputed">Charged, dispute open</option>
+            <option value="charged_unresolved">Charged, not refunded</option>
+          </select>
+        </div>
       </div>
 
       <label for="fNotes">Notes (optional, max 500 characters)</label>
@@ -152,9 +175,9 @@
     <div class="card">
       <div id="receiptCard">Fill in the form — your receipt card appears here live.</div>
       <div id="makeError" class="result bad" style="display:none"></div>
-      <button class="btn" onclick="copyShareText()">Copy share text</button>
-      <button class="btn secondary" onclick="copyJson()">Copy JSON</button>
-      <button class="btn secondary" onclick="downloadJson()">Download JSON</button>
+      <button class="btn" id="btnShare" onclick="copyShareText()">Copy share text</button>
+      <button class="btn secondary" id="btnCopy" onclick="copyJson()">Copy JSON</button>
+      <button class="btn secondary" id="btnDl" onclick="downloadJson()">Download JSON</button>
     </div>
 
     <div class="card">
@@ -166,7 +189,7 @@
   <!-- ============ VERIFY ============ -->
   <section id="panelVerify" class="panel">
     <div class="card">
-      <label for="vJson">Paste a receipt JSON</label>
+      <label for="vJson">Paste a receipt JSON (v0.1 or v0.2)</label>
       <textarea id="vJson" style="min-height:140px" placeholder='{"format": "cancel-proof", ...}'></textarea>
       <label for="vShot">Screenshot file (optional — re-hashes it and compares with the receipt)</label>
       <input id="vShot" type="file" accept="image/*">
@@ -176,14 +199,15 @@
     </div>
     <div class="card">
       <strong>What verification proves — and what it doesn't</strong>
-      <p class="hint">A matching screenshot hash proves the screenshot file is the one the receipt refers to, unchanged. It does not prove the screenshot itself is genuine. A receipt is evidence the holder controls — not a court judgement.</p>
+      <p class="hint">A matching screenshot hash proves the screenshot file is the one the receipt refers to, unchanged. It does not prove the screenshot itself is genuine. A seller signature proves the holder of the matching key signed this exact receipt — trust in the key comes from the key being published at the seller's domain, not from the signature alone. A receipt is evidence the holder controls — not a court judgement.</p>
     </div>
   </section>
 </main>
 <footer>
-  Cancel-Proof v0.1 · Format: CC BY 4.0 · Code: Apache 2.0 ·
-  <a href="CANCEL-PROOF-SPEC-v0.1.md">Spec</a> ·
-  <a href="MODEL-RULE-v0.1.md">Model rule</a>
+  Cancel-Proof v0.2 · Format: CC BY 4.0 · Code: Apache 2.0 ·
+  <a href="CANCEL-PROOF-SPEC-v0.2.md">Spec v0.2</a> ·
+  <a href="MODEL-RULE-v0.2.md">Model rule v0.2</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
 </footer>
 
 <script>
@@ -191,12 +215,98 @@
 const $ = id => document.getElementById(id);
 const FLAGS = ["hidden_cancel_button","forced_chat","forced_call","save_offer_wall",
                "confirm_shaming","no_confirmation","roach_motel"];
+const STATUSES = ["no_charge","charged_refunded","charged_disputed","charged_unresolved"];
+const ISO_4217 = ("AED AFN ALL AMD ANG AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD " +
+  "BND BOB BRL BSD BTN BWP BYN BZD CAD CDF CHF CLP CNY COP CRC CUP CVE CZK DJF DKK DOP DZD " +
+  "EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF IDR ILS INR IQD " +
+  "IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL " +
+  "MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK " +
+  "PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SYP " +
+  "SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD UYU UZS VED VES VND VUV WST XAF XAG " +
+  "XAU XCD XDR XOF XPF XPT YER ZAR ZMW ZWL").split(" ");
+const ZERO_DECIMAL = new Set(["BIF","CLP","DJF","GNF","ISK","JPY","KMF","KRW","PYG","RWF","UGX","VND","VUV","XAF","XOF","XPF"]);
+const CARD_LIKE = /\d{13,19}/;
+const EMAIL_LIKE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+const HEX64 = /^[0-9a-f]{64}$/;
+const DATETIME_Z = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$/;
+const RECEIPT_ID_RE = /^CPR-[0-9]{4}-[A-Z0-9]{4,12}$/;
 let shotHash = "", shotName = "";
 
+/* ---- pure-JS SHA-256 (FIPS 180-4), used when WebCrypto is unavailable
+   (e.g. file:// pages have no secure context). Test vectors are checked
+   by the repo's page smoke test; matches crypto.subtle output. ---- */
+function sha256js(bytes) {
+  const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  let h0=0x6a09e667,h1=0xbb67ae85,h2=0x3c6ef372,h3=0xa54ff53a,h4=0x510e527f,h5=0x9b05688c,h6=0x1f83d9ab,h7=0x5be0cd19;
+  const rotr=(x,n)=>(x>>>n)|(x<<(32-n));
+  const bitLen = bytes.length * 8;
+  const totalLen = (((bytes.length + 9 + 63) >> 6) << 6);
+  const msg = new Uint8Array(totalLen);
+  msg.set(bytes);
+  msg[bytes.length] = 0x80;
+  const dv = new DataView(msg.buffer);
+  dv.setUint32(totalLen - 8, Math.floor(bitLen / 4294967296));
+  dv.setUint32(totalLen - 4, bitLen >>> 0);
+  const w = new Uint32Array(64);
+  for (let block = 0; block < totalLen; block += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(block + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i-15],7) ^ rotr(w[i-15],18) ^ (w[i-15] >>> 3);
+      const s1 = rotr(w[i-2],17) ^ rotr(w[i-2],19) ^ (w[i-2] >>> 10);
+      w[i] = (w[i-16] + s0 + w[i-7] + s1) | 0;
+    }
+    let a=h0,b=h1,c=h2,d=h3,e=h4,f=h5,g=h6,h=h7;
+    for (let i = 0; i < 64; i++) {
+      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (h + S1 + ch + K[i] + w[i]) | 0;
+      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (S0 + maj) | 0;
+      h=g; g=f; f=e; e=(d+t1)|0; d=c; c=b; b=a; a=(t1+t2)|0;
+    }
+    h0=(h0+a)|0; h1=(h1+b)|0; h2=(h2+c)|0; h3=(h3+d)|0;
+    h4=(h4+e)|0; h5=(h5+f)|0; h6=(h6+g)|0; h7=(h7+h)|0;
+  }
+  return [h0,h1,h2,h3,h4,h5,h6,h7].map(x => (x>>>0).toString(16).padStart(8,"0")).join("");
+}
+
+async function sha256Hex(file) {
+  const buf = await file.arrayBuffer();
+  if (window.crypto && crypto.subtle) {
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2,"0")).join("");
+  }
+  return sha256js(new Uint8Array(buf));
+}
+
+/* ---- JCS canonical form (RFC 8785), same shape as vibe-security ---- */
+function canonicalize(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return "[" + value.map(canonicalize).join(",") + "]";
+  const keys = Object.keys(value).sort();
+  return "{" + keys.map(k => JSON.stringify(k) + ":" + canonicalize(value[k])).join(",") + "}";
+}
+function b64urlDecode(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/* ---- receipt id: 8 chars from a cryptographic random source ---- */
 function randId() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let s = "";
-  for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  if (window.crypto && crypto.getRandomValues) {
+    const rnd = new Uint8Array(8);
+    crypto.getRandomValues(rnd);
+    for (let i = 0; i < 8; i++) s += chars[rnd[i] % chars.length];
+  } else {
+    for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  }
   return "CPR-" + new Date().getUTCFullYear() + "-" + s;
 }
 function newReceiptId() { $("fReceiptId").value = randId(); update(); }
@@ -205,12 +315,6 @@ function toUtcZ(localValue) {
   if (!localValue) return "";
   const d = new Date(localValue);
   return isNaN(d) ? "" : d.toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-async function sha256Hex(file) {
-  const buf = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
 $("fShot").addEventListener("change", async e => {
@@ -228,19 +332,61 @@ $("fShot").addEventListener("change", async e => {
   update();
 });
 
+/* ---- repeatable rows ---- */
+function addChargeRow(date, amount, currency) {
+  const div = document.createElement("div");
+  div.className = "charge-row";
+  div.innerHTML =
+    '<input type="date" aria-label="Charge date" placeholder="Date">' +
+    '<input type="number" min="0" step="0.01" placeholder="Amount" aria-label="Charge amount">' +
+    '<input placeholder="USD" maxlength="3" aria-label="Currency code" style="max-width:76px">' +
+    '<button class="rm" type="button" aria-label="Remove charge">✕</button>';
+  const inputs = div.querySelectorAll("input");
+  if (date) inputs[0].value = date;
+  if (amount !== undefined) inputs[1].value = amount;
+  if (currency) inputs[2].value = currency;
+  div.querySelector(".rm").onclick = () => { div.remove(); update(); };
+  inputs.forEach(el => el.addEventListener("input", update));
+  $("chargeRows").appendChild(div);
+}
+function addEvRow(type, value, received) {
+  const div = document.createElement("div");
+  div.className = "ev-row";
+  div.innerHTML =
+    '<select aria-label="Evidence type" style="max-width:130px">' +
+      '<option value="email">Email</option><option value="screenshot">Screenshot</option>' +
+      '<option value="pdf">PDF</option><option value="reference">Reference</option>' +
+      '<option value="response">Seller reply</option></select>' +
+    '<input placeholder="Hash or reference" aria-label="Evidence hash or reference">' +
+    '<input type="datetime-local" aria-label="When received (local time)" title="When received (local time)">' +
+    '<button class="rm" type="button" aria-label="Remove evidence">✕</button>';
+  const sel = div.querySelector("select");
+  const inputs = div.querySelectorAll("input");
+  if (type) sel.value = type;
+  if (value) inputs[0].value = value;
+  if (received) inputs[1].value = received;
+  div.querySelector(".rm").onclick = () => { div.remove(); update(); };
+  sel.addEventListener("change", update);
+  inputs.forEach(el => el.addEventListener("input", update));
+  $("evRows").appendChild(div);
+}
+
+function minorDigits(currency) { return ZERO_DECIMAL.has(currency) ? 0 : 2; }
+
 function buildReceipt() {
   const service = $("fService").value.trim();
   const domain = $("fDomain").value.trim().toLowerCase();
   const acctType = $("fAccountType").value;
   const acctValue = $("fAccountValue").value.trim();
   const when = toUtcZ($("fWhen").value);
+  const effective = toUtcZ($("fEffective").value);
   const reference = $("fReference").value.trim();
   const notes = $("fNotes").value.trim();
   const flags = [...document.querySelectorAll("#fFlags input:checked")].map(c => c.value);
 
   const r = {
     format: "cancel-proof",
-    version: "0.1",
+    version: "0.2",
     receipt_id: $("fReceiptId").value,
     issuer: "consumer",
     service: { name: service, domain: domain },
@@ -249,30 +395,67 @@ function buildReceipt() {
     created_utc: new Date().toISOString().replace(/\.\d{3}Z$/, "Z")
   };
   if (acctType !== "none" && acctValue) r.account.value = acctValue;
+  if (effective) r.cancellation.effective_at = effective;
   if (reference) r.cancellation.reference = reference;
-  if (shotHash) r.evidence = { screenshot_sha256: shotHash, screenshot_filename: shotName };
-  if (flags.length) r.dark_pattern_flags = flags;
-  const cd = $("fChargeDate").value, ca = $("fChargeAmount").value,
-        cc = $("fChargeCurrency").value.trim().toUpperCase();
-  if (cd && ca && cc) {
-    r.charges_after_cancel = [{ date: cd, amount: parseFloat(ca), currency: cc }];
+  const items = [];
+  document.querySelectorAll("#evRows .ev-row").forEach(row => {
+    const sel = row.querySelector("select").value;
+    const inputs = row.querySelectorAll("input");
+    const val = inputs[0].value.trim();
+    const recv = toUtcZ(inputs[1].value);
+    if (!val) return;
+    const item = { type: sel };
+    if (HEX64.test(val.toLowerCase())) item.hash = val.toLowerCase();
+    else item.ref = val;
+    if (recv) item.received_utc = recv;
+    items.push(item);
+  });
+  if (shotHash || items.length) {
+    r.evidence = {};
+    if (shotHash) { r.evidence.screenshot_sha256 = shotHash; r.evidence.screenshot_filename = shotName; }
+    if (items.length) r.evidence.items = items;
   }
+  if (flags.length) r.dark_pattern_flags = flags;
+  const charges = [];
+  document.querySelectorAll("#chargeRows .charge-row").forEach(row => {
+    const inputs = row.querySelectorAll("input");
+    const cd = inputs[0].value, ca = inputs[1].value,
+          cc = inputs[2].value.trim().toUpperCase();
+    if (cd && ca && cc) {
+      charges.push({ date: cd, amount_minor: Math.round(parseFloat(ca) * Math.pow(10, minorDigits(cc))), currency: cc });
+    }
+  });
+  if (charges.length) r.charges_after_cancel = charges;
+  if ($("fStatus").value) r.status = $("fStatus").value;
   if (notes) r.notes = notes;
   return r;
 }
 
 function validateLocal(r) {
   const errs = [];
-  if (!r.service.name) errs.push("Service name is required.");
-  if (!r.service.domain) errs.push("Service domain is required.");
-  if (!r.cancellation.datetime_utc) errs.push("Cancellation date/time is required.");
-  if (!r.cancellation.reference && !shotHash)
-    errs.push("Add a reference number or a screenshot — a receipt needs at least one piece of evidence.");
-  const cc = (r.charges_after_cancel || [])[0];
-  if (cc && !/^[A-Z]{3}$/.test(cc.currency))
-    errs.push("Charge currency must be a 3-letter code, e.g. USD.");
-  if (/\d{13,19}/.test(JSON.stringify(r).replace(/"screenshot_sha256":"[0-9a-f]{64}"/, "")))
-    errs.push("A card-like number was detected — never put card or account numbers in a receipt.");
+  if (!r.service.name) errs.push("E_MISSING_FIELD: Service name is required.");
+  if (!r.service.domain) errs.push("E_MISSING_FIELD: Service domain is required.");
+  if (!r.cancellation.datetime_utc) errs.push("E_MISSING_FIELD: Cancellation date/time is required.");
+  const hasRef = !!r.cancellation.reference;
+  const hasHash = !!(r.evidence && r.evidence.screenshot_sha256);
+  const hasItems = !!(r.evidence && r.evidence.items && r.evidence.items.length);
+  if (!hasRef && !hasHash && !hasItems)
+    errs.push("E_NO_EVIDENCE: Add a reference number, a screenshot, or an evidence item — a receipt needs at least one piece of evidence.");
+  (r.charges_after_cancel || []).forEach((c, i) => {
+    if (!ISO_4217.includes(c.currency))
+      errs.push("E_BAD_CURRENCY: Charge #" + (i + 1) + " currency is not an ISO 4217 code: " + c.currency + ".");
+    if (r.cancellation.datetime_utc && c.date <= r.cancellation.datetime_utc.slice(0, 10))
+      errs.push("E_CHARGE_DATE: Charge #" + (i + 1) + " is not dated after the cancellation date.");
+  });
+  // Secret scan on public text fields only — the seller's reference number
+  // and the receipt id are excluded (a 16-digit confirmation is not a card).
+  [["notes", r.notes], ["account value", r.account.value], ["service name", r.service.name]].forEach(([where, text]) => {
+    if (!text) return;
+    if (CARD_LIKE.test(text))
+      errs.push("E_SECRET_DETECTED: " + where + " contains a card-like number — never put card or account numbers in a receipt.");
+    else if (EMAIL_LIKE.test(text))
+      errs.push("E_SECRET_DETECTED: " + where + " contains a full email address — never put full email addresses in a receipt.");
+  });
   return errs;
 }
 
@@ -285,13 +468,13 @@ function shareText(r) {
       (r.cancellation.reference ? "Seller ref: " + r.cancellation.reference + " · " : "") +
       "Method: " + r.cancellation.method + ".",
   ];
-  if (r.evidence) lines.push("Screenshot hash: " + r.evidence.screenshot_sha256.slice(0, 12) + "…" +
-    r.evidence.screenshot_sha256.slice(-4) + " (re-hash my screenshot to verify).");
-  if (r.charges_after_cancel) {
-    const c = r.charges_after_cancel[0];
-    lines.push("Charged " + c.amount + " " + c.currency + " on " + c.date + " AFTER cancelling.");
-  }
-  lines.push("Cancel-Proof receipt (open format, v0.1).");
+  if (r.evidence) lines.push("Evidence: " +
+    (r.evidence.screenshot_sha256 ? "screenshot hash " + r.evidence.screenshot_sha256.slice(0, 12) + "…" + r.evidence.screenshot_sha256.slice(-4) + " " : "") +
+    (r.evidence.items ? r.evidence.items.length + " evidence item(s)" : "") + " (re-hash my files to verify).");
+  (r.charges_after_cancel || []).forEach(c => {
+    lines.push("Charged " + (c.amount_minor / Math.pow(10, minorDigits(c.currency))).toFixed(minorDigits(c.currency)) + " " + c.currency + " on " + c.date + " AFTER cancelling.");
+  });
+  lines.push("Cancel-Proof receipt (open format, v0.2).");
   return lines.join("\n");
 }
 
@@ -302,13 +485,15 @@ function update() {
   const errBox = $("makeError");
   if (errs.length) { errBox.style.display = "block"; errBox.textContent = errs.join(" "); }
   else errBox.style.display = "none";
+  // Export is blocked while the receipt has validation errors.
+  ["btnShare", "btnCopy", "btnDl"].forEach(id => { $(id).disabled = errs.length > 0; });
   $("receiptCard").innerHTML =
     '<span class="rid">' + esc(r.receipt_id) + "</span>\n" +
     esc(shareText(r));
 }
 
 function esc(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 async function copyText(text, btn) {
@@ -336,36 +521,159 @@ function downloadJson() {
 function verifyStructure(r) {
   const errs = [], ok = [];
   const need = ["format","version","receipt_id","issuer","service","account","cancellation","created_utc"];
-  need.forEach(f => { if (!(f in r)) errs.push("Missing field: " + f); });
-  if (r.format && r.format !== "cancel-proof") errs.push("format must be 'cancel-proof'.");
-  if (r.version && r.version !== "0.1") errs.push("version must be '0.1' (this page checks v0.1).");
-  if (r.receipt_id && !/^CPR-[0-9]{4}-[A-Z0-9]{4,12}$/.test(r.receipt_id))
-    errs.push("receipt_id is malformed.");
+  need.forEach(f => { if (!(f in r)) errs.push("E_MISSING_FIELD: Missing field: " + f + "."); });
+  if (r.format && r.format !== "cancel-proof") errs.push("E_BAD_VALUE: format must be 'cancel-proof'.");
+  if (r.version && !["0.1","0.2"].includes(r.version))
+    errs.push("E_UNSUPPORTED_VERSION: version must be '0.1' or '0.2' (this page checks v0.1 and v0.2).");
+  if (r.receipt_id && !RECEIPT_ID_RE.test(r.receipt_id))
+    errs.push("E_BAD_VALUE: receipt_id is malformed.");
   if (r.service && (!r.service.name || !r.service.domain))
-    errs.push("service needs a name and a domain.");
+    errs.push("E_MISSING_FIELD: service needs a name and a domain.");
   if (r.cancellation) {
-    if (!r.cancellation.datetime_utc) errs.push("cancellation.datetime_utc is missing.");
-    else if (new Date(r.cancellation.datetime_utc) > new Date())
-      errs.push("cancellation date is in the future.");
-    if (!r.cancellation.method) errs.push("cancellation.method is missing.");
+    if (!r.cancellation.datetime_utc) errs.push("E_MISSING_FIELD: cancellation.datetime_utc is missing.");
+    else {
+      if (!DATETIME_Z.test(r.cancellation.datetime_utc))
+        errs.push("E_BAD_VALUE: cancellation.datetime_utc must be ISO 8601 UTC, Zulu form.");
+      else if (new Date(r.cancellation.datetime_utc) > new Date())
+        errs.push("E_FUTURE_DATE: cancellation date is in the future.");
+    }
+    if (!r.cancellation.method) errs.push("E_MISSING_FIELD: cancellation.method is missing.");
+    if (r.cancellation.effective_at) {
+      if (!DATETIME_Z.test(r.cancellation.effective_at))
+        errs.push("E_BAD_VALUE: cancellation.effective_at must be ISO 8601 UTC, Zulu form.");
+      else if (r.cancellation.datetime_utc && new Date(r.cancellation.effective_at) < new Date(r.cancellation.datetime_utc))
+        errs.push("E_EFFECTIVE_DATE: effective_at is earlier than datetime_utc.");
+    }
+  }
+  if (r.created_utc) {
+    if (!DATETIME_Z.test(r.created_utc))
+      errs.push("E_BAD_VALUE: created_utc must be ISO 8601 UTC, Zulu form.");
+    else if (new Date(r.created_utc) > new Date())
+      errs.push("E_FUTURE_DATE: created_utc is in the future.");
+    else if (r.cancellation && r.cancellation.datetime_utc && new Date(r.created_utc) < new Date(r.cancellation.datetime_utc))
+      errs.push("E_CREATED_BEFORE_CANCEL: created_utc is earlier than cancellation.datetime_utc.");
+  }
+  if (r.receipt_id && r.created_utc) {
+    const m = RECEIPT_ID_RE.exec(r.receipt_id);
+    if (m && m[0].slice(4, 8) !== r.created_utc.slice(0, 4))
+      errs.push("E_RECEIPT_YEAR: receipt_id year does not match the year of created_utc.");
   }
   const hasRef = !!(r.cancellation && r.cancellation.reference);
-  const hasHash = !!(r.evidence && /^[0-9a-f]{64}$/.test(r.evidence.screenshot_sha256 || ""));
+  const hasHash = !!(r.evidence && HEX64.test(r.evidence.screenshot_sha256 || ""));
+  const items = (r.evidence && r.evidence.items) || [];
+  if (r.evidence && "items" in r.evidence && (!Array.isArray(r.evidence.items) || !r.evidence.items.length))
+    errs.push("E_NO_EVIDENCE: evidence.items must be a non-empty array.");
   if (r.evidence && r.evidence.screenshot_sha256 && !hasHash)
-    errs.push("screenshot hash is not 64 lowercase hex characters.");
-  if (!hasRef && !hasHash) errs.push("No evidence: neither a reference number nor a screenshot hash.");
+    errs.push("E_BAD_HASH: screenshot hash is not 64 lowercase hex characters.");
+  items.forEach((it, i) => {
+    if (!["email","screenshot","pdf","reference","response"].includes(it.type))
+      errs.push("E_BAD_VALUE: evidence item #" + (i + 1) + " has an unknown type.");
+    if (it.hash && !HEX64.test(it.hash))
+      errs.push("E_BAD_HASH: evidence item #" + (i + 1) + " hash is not 64 lowercase hex characters.");
+    if (!it.hash && !it.ref)
+      errs.push("E_BAD_VALUE: evidence item #" + (i + 1) + " needs a hash or a ref.");
+  });
+  if (!hasRef && !hasHash && !items.length)
+    errs.push("E_NO_EVIDENCE: No evidence: neither a reference number, a screenshot hash, nor an evidence item.");
   (r.dark_pattern_flags || []).forEach(f => {
-    if (!FLAGS.includes(f)) errs.push("Unknown dark-pattern flag: " + f);
+    if (!FLAGS.includes(f)) errs.push("E_UNKNOWN_FLAG: Unknown dark-pattern flag: " + f + ".");
   });
   (r.charges_after_cancel || []).forEach((c, i) => {
-    if (!/^[A-Z]{3}$/.test(c.currency || "")) errs.push("Charge #" + (i + 1) + " has a bad currency code.");
-    if (r.cancellation && c.date && c.date <= r.cancellation.datetime_utc.slice(0, 10))
-      errs.push("Charge #" + (i + 1) + " is not dated after the cancellation.");
+    if (!ISO_4217.includes(c.currency || ""))
+      errs.push("E_BAD_CURRENCY: Charge #" + (i + 1) + " currency is not an ISO 4217 code.");
+    if (c.amount !== undefined && (typeof c.amount !== "number" || c.amount <= 0))
+      errs.push("E_BAD_AMOUNT: Charge #" + (i + 1) + " amount must be a number > 0.");
+    if (c.amount !== undefined && Math.round(c.amount * 100) !== c.amount * 100)
+      errs.push("E_BAD_AMOUNT: Charge #" + (i + 1) + " amount has more than 2 decimal places (use amount_minor).");
+    if (c.amount_minor !== undefined && (!Number.isInteger(c.amount_minor) || c.amount_minor < 1))
+      errs.push("E_BAD_AMOUNT: Charge #" + (i + 1) + " amount_minor must be a positive integer.");
+    if (c.amount === undefined && c.amount_minor === undefined)
+      errs.push("E_BAD_AMOUNT: Charge #" + (i + 1) + " needs amount or amount_minor.");
+    if (r.cancellation && r.cancellation.datetime_utc && c.date && c.date <= r.cancellation.datetime_utc.slice(0, 10))
+      errs.push("E_CHARGE_DATE: Charge #" + (i + 1) + " is not dated after the cancellation date.");
   });
-  if (!errs.length) ok.push("Structure is valid Cancel-Proof v0.1.");
+  if (r.status && !STATUSES.includes(r.status))
+    errs.push("E_BAD_STATUS: Unknown status: " + r.status + ".");
+  if (r.superseded_by !== undefined) {
+    if (typeof r.superseded_by === "string") {
+      if (r.superseded_by.length > 200) errs.push("E_BAD_SUPERSEDED: superseded_by string is too long.");
+    } else if (typeof r.superseded_by === "object" && r.superseded_by) {
+      if (!RECEIPT_ID_RE.test(r.superseded_by.receipt_id || ""))
+        errs.push("E_BAD_SUPERSEDED: superseded_by.receipt_id is malformed.");
+      if (!["seller_confirmation","correction","replacement"].includes(r.superseded_by.type))
+        errs.push("E_BAD_SUPERSEDED: superseded_by.type is unknown.");
+    } else errs.push("E_BAD_SUPERSEDED: superseded_by must be a string (v0.1) or an object (v0.2).");
+  }
+  if (r.account && r.account.type === "email_hash" && r.account.value && !HEX64.test(r.account.value))
+    errs.push("E_BAD_HASH: account.value must be a 64-hex SHA-256 for email_hash.");
+  if (r.signature) {
+    const sig = r.signature;
+    if (sig.algorithm !== "ES256-JCS")
+      errs.push("E_BAD_SIGNATURE: signature.algorithm must be 'ES256-JCS'.");
+    const pk = sig.public_key || {};
+    if (pk.kty !== "EC" || pk.crv !== "P-256")
+      errs.push("E_BAD_SIGNATURE: signature.public_key must be a P-256 EC JWK.");
+    if (!/^[A-Za-z0-9_-]{43}$/.test(pk.x || "") || !/^[A-Za-z0-9_-]{43}$/.test(pk.y || ""))
+      errs.push("E_BAD_SIGNATURE: signature.public_key x/y must be 43 base64url characters.");
+    if (!/^[A-Za-z0-9_-]{86}$/.test(sig.signature || ""))
+      errs.push("E_BAD_SIGNATURE: signature.signature must be 86 base64url characters.");
+    if (sig.key_url && !/^https?:\/\/\S+$/.test(sig.key_url))
+      errs.push("E_BAD_SIGNATURE: signature.key_url must be an http(s) URL.");
+  }
+  // Unknown fields (a typo'd field name is the most common authoring error).
+  const checkKeys = (obj, allowed, where) => {
+    if (!obj || typeof obj !== "object") return;
+    Object.keys(obj).forEach(k => {
+      if (!allowed.includes(k)) errs.push("E_BAD_VALUE: " + where + " has an unexpected field '" + k + "'.");
+    });
+  };
+  checkKeys(r, ["format","version","receipt_id","issuer","service","account","cancellation","evidence","dark_pattern_flags","charges_after_cancel","superseded_by","notes","created_utc","signature","status"], "receipt");
+  checkKeys(r.service, ["name","domain"], "service");
+  checkKeys(r.account, ["type","value"], "account");
+  checkKeys(r.cancellation, ["datetime_utc","effective_at","method","reference"], "cancellation");
+  checkKeys(r.evidence, ["screenshot_sha256","screenshot_filename","items"], "evidence");
+  checkKeys(r.signature, ["algorithm","public_key","signature","key_url"], "signature");
+  if (r.signature) checkKeys(r.signature.public_key, ["kty","crv","x","y"], "signature.public_key");
+  (r.charges_after_cancel || []).forEach((c, i) => checkKeys(c, ["date","amount","amount_minor","currency","note"], "charges_after_cancel[" + i + "]"));
+  items.forEach((it, i) => checkKeys(it, ["type","hash","ref","received_utc","source"], "evidence.items[" + i + "]"));
+  if (r.superseded_by && typeof r.superseded_by === "object")
+    checkKeys(r.superseded_by, ["receipt_id","type","date","note"], "superseded_by");
+  [["notes", r.notes], ["account value", r.account && r.account.value], ["service name", r.service && r.service.name]].forEach(([where, text]) => {
+    if (!text) return;
+    if (CARD_LIKE.test(text))
+      errs.push("E_SECRET_DETECTED: " + where + " contains a card-like number.");
+    else if (EMAIL_LIKE.test(text))
+      errs.push("E_SECRET_DETECTED: " + where + " contains a full email address.");
+  });
+  if (!errs.length) ok.push("Structure is valid Cancel-Proof v" + (r.version || "?") + ".");
   if (hasRef) ok.push("Seller reference present: " + r.cancellation.reference + ".");
   if (hasHash) ok.push("Screenshot hash present (64-hex).");
+  if (items.length) ok.push(items.length + " evidence item(s) present.");
+  if (r.status) ok.push("Status: " + r.status + ".");
   return { errs, ok };
+}
+
+async function verifySignature(r) {
+  if (!r.signature) return null;
+  if (!window.crypto || !crypto.subtle)
+    return { ok: false, note: "This browser cannot verify signatures (no WebCrypto) — the signature was NOT checked." };
+  try {
+    const key = await crypto.subtle.importKey("jwk", r.signature.public_key,
+      { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    const unsigned = Object.assign({}, r);
+    delete unsigned.signature;
+    const data = new TextEncoder().encode(canonicalize(unsigned));
+    const sig = b64urlDecode(r.signature.signature);
+    const valid = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, sig, data);
+    if (valid) {
+      let msg = "Seller signature is VALID — the holder of this key signed this exact receipt.";
+      if (r.signature.key_url) msg += " Compare the key against " + r.signature.key_url + " before trusting it.";
+      return { ok: true, note: msg };
+    }
+    return { ok: false, note: "Seller signature does NOT match the receipt contents." };
+  } catch (e) {
+    return { ok: false, note: "Could not verify the signature: " + e.message };
+  }
 }
 
 async function verifyReceipt() {
@@ -377,6 +685,12 @@ async function verifyReceipt() {
   let html = "";
   ok.forEach(m => html += '<div class="result ok">✓ ' + esc(m) + "</div>");
   errs.forEach(m => html += '<div class="result bad">✗ ' + esc(m) + "</div>");
+  const sig = await verifySignature(r);
+  if (sig) {
+    html += sig.ok
+      ? '<div class="result ok">✓ ' + esc(sig.note) + "</div>"
+      : '<div class="result ' + (sig.note.indexOf("NOT checked") >= 0 ? "note" : "bad") + '">✗ ' + esc(sig.note) + "</div>";
+  }
   const f = $("vShot").files[0];
   if (f && r.evidence && r.evidence.screenshot_sha256) {
     try {
@@ -411,6 +725,7 @@ document.querySelectorAll("input, select, textarea").forEach(el => {
   $("fWhen").value = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
     "T" + pad(now.getHours()) + ":" + pad(now.getMinutes());
   $("fReceiptId").value = randId();
+  addChargeRow();
   update();
 })();
 </script>

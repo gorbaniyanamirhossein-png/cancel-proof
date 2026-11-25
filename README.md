@@ -9,19 +9,24 @@ word against their database. Cancel-Proof is a small open format for a
 cancellation receipt: a JSON file you create at the moment of cancelling, can
 publish anywhere, and anyone can verify. No server, no account, no fee.
 
-**Status:** v0.1, draft for public comment (21 November 2026).
+**Status:** v0.2, draft for public comment (25 November 2026). v0.1
+receipts remain valid; v0.1 files are frozen in `examples/v0.1/` and
+`schemas/cancel-receipt-0.1.schema.json`. See `CHANGELOG.md`.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `CANCEL-PROOF-SPEC-v0.1.md` | The format specification |
-| `cancel-receipt.schema.json` | JSON Schema (draft 2020-12) |
-| `examples/` | Two fictional, ILLUSTRATIVE receipts (clean cancel; wrongful charge) |
+| `CANCEL-PROOF-SPEC-v0.2.md` | The format specification (current) |
+| `CANCEL-PROOF-SPEC-v0.1.md` | Frozen v0.1 spec |
+| `cancel-receipt.schema.json` | JSON Schema (draft 2020-12) — accepts v0.1 and v0.2 |
+| `schemas/cancel-receipt-0.1.schema.json` | Frozen v0.1 schema |
+| `examples/v0.1/`, `examples/v0.2/` | Fictional, ILLUSTRATIVE receipts |
+| `tests/` | Conformance suite: valid + invalid fixtures |
 | `index.html` | Static page: make a receipt / verify a receipt — runs offline in a phone browser, nothing is uploaded |
 | `validate.py` | Validator + self-test (`python3 validate.py --selftest`) |
-| `MODEL-RULE-v0.1.md` | Short model click-to-cancel rule, grounded in the real FTC and EU texts |
-| `LICENSE.md` | Licences |
+| `MODEL-RULE-v0.2.md` | Short model click-to-cancel rule, grounded in the real FTC and EU texts |
+| `CHANGELOG.md` | What changed in each version |
 
 ## How to use it
 
@@ -45,8 +50,9 @@ numbers, no full email addresses. Receipts are public by design.
   would ban dark patterns and require an easy online termination function —
   but it requires no machine-readable receipt. Public feedback is open on
   the Commission's "Have your say" platform (opened 17 Nov 2026; deadline
-  currently listed mid-January 2027 — check the live page). The model rule
-  in this repo is written for that consultation.
+  **15 January 2027**, midnight Brussels time — verified on the official
+  page, initiative 14622). The model rule in this repo is written for that
+  consultation.
 - **US:** the FTC's 2024 click-to-cancel rule (89 FR 90476) was vacated in
   full on 8 Jul 2025 (*Custom Communications v. FTC*, 8th Cir.) on
   procedural grounds; the FTC's new rulemaking (ANPRM, 91 FR 12318) took
@@ -56,7 +62,9 @@ numbers, no full email addresses. Receipts are public by design.
 
 ## Roadmap
 
-- **v0.1 (this):** the free layer — format, page, validator, model rule.
+- **v0.2 (this):** the free layer — multi-evidence receipts, seller
+  signatures, status, structured supersession, `amount_minor`, error
+  codes, conformance suite.
 - **Phase 2:** a dark-pattern incident registry fed by receipts (receipts
   already carry `dark_pattern_flags` for this).
 - **Later, only after proven demand (~10 real requests):** a paid layer —

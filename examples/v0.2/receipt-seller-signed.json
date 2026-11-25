@@ -1,0 +1,44 @@
+{
+  "account": {
+    "type": "username_partial",
+    "value": "fit***99"
+  },
+  "cancellation": {
+    "datetime_utc": "2026-11-20T13:45:00Z",
+    "method": "button",
+    "reference": "CNL-9901-7742"
+  },
+  "charges_after_cancel": [
+    {
+      "amount_minor": 1299,
+      "currency": "EUR",
+      "date": "2026-11-21",
+      "note": "Monthly fee charged one day after cancellation; dispute open"
+    }
+  ],
+  "created_utc": "2026-11-20T13:50:00Z",
+  "evidence": {
+    "screenshot_sha256": "b25c2c43eb5bffab94d799476705f1ed4c1d37e898b1f36ba221102d8a42d596"
+  },
+  "format": "cancel-proof",
+  "issuer": "seller",
+  "notes": "ILLUSTRATIVE EXAMPLE — fictional service, fictional account. A seller-issued receipt, signed with the seller’s own P-256 key (ES256-JCS, RFC 8785). The keypair is fictional; the private key was discarded after signing. The public key is embedded here and published at the key_url — a signature proves the key holder signed it; trust in the key comes from the key being published at the seller’s domain.",
+  "receipt_id": "CPR-2026-SIGN5T9R",
+  "service": {
+    "domain": "fitloop.test",
+    "name": "FitLoop"
+  },
+  "status": "charged_disputed",
+  "version": "0.2",
+  "signature": {
+    "algorithm": "ES256-JCS",
+    "public_key": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "Uo7mU6PntD6tad4iJgAwtMrApRd-EMGmrwTeddlKy00",
+      "y": "Enx-sx5wwmt509Nsb6LNdUEfRI5h_meHm8dSm_mxvCc"
+    },
+    "key_url": "https://fitloop.test/.well-known/cancel-proof-key.json",
+    "signature": "cUT0Sg7W1BlEdhieJk1E1cdUK6vOzgffazNp9mVACF2KnIcaqY4nmzbqpk_t6WuBhzah5i7sXmqw7MlY2jiGoQ"
+  }
+}

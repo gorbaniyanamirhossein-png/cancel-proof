@@ -1,0 +1,1 @@
+{"account": {"type": "none"}, "cancellation": {"datetime_utc": "2026-11-20T08:00:00Z", "method": "button", "reference": "MM-100"}, "created_utc": "2026-11-20T08:05:00Z", "format": "cancel-proof", "issuer": "consumer", "receipt_id": "CPR-2026-OLD30003", "service": {"domain": "minimail.test", "name": "MiniMail"}, "superseded_by": "CPR-2026-NEW40004", "version": "0.1"}
